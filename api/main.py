@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Integer, Float, DateTime, func, insert, update, select
 from sqlalchemy.orm import sessionmaker
 from contextlib import contextmanager
-
+from apscheduler.schedulers.background import BackgroundScheduler
+import subprocess
 # --- Configuração do Banco de Dados (SQLAlchemy) ---
 
 # Pega a URL do banco do Docker Compose
@@ -246,3 +247,17 @@ def listar_produtos():
             # Imprime o erro no log para facilitar o debug
             print(f"Erro ao listar produtos: {e}")
             raise HTTPException(status_code=500, detail=f"Erro interno ao listar produtos: {str(e)}")
+
+# Função que roda o ETL
+def job_etl():
+    print("Cron Interno: Iniciando ETL...")
+    subprocess.run(["python", "etl.py"])
+    print("Cron Interno: ETL Finalizado.")
+
+# Configura o agendador
+scheduler = BackgroundScheduler()
+# Define para rodar a cada 60 minutos (ou o tempo que quiser)
+scheduler.add_job(job_etl, 'interval', minutes=60)
+scheduler.start()
+
+# ... resto do código da API (app = FastAPI...) ...
