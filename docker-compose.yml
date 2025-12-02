@@ -1,0 +1,83 @@
+# Versão do Docker Compose
+## version: '3.8'
+
+services:
+  # --- SERVIÇO 1: BANCO DE DADOS POSTGRESQL ---
+  db:
+    image: postgres:15-alpine  # Usa a imagem oficial e leve do Postgres
+    container_name: sige_db
+    environment:
+      # Define o usuário, senha e nome do banco de dados
+      # O FastAPI e o ETL usarão essas variáveis para se conectar
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=sige_db
+    volumes:
+      # Garante que os dados do banco persistam mesmo se o contêiner parar
+      - ./postgres-data:/var/lib/postgresql/data
+    ports:
+      # Expõe a porta do banco para o seu computador (opcional, bom para debugar)
+      - "5432:5432"
+    healthcheck:
+      # Testa se o banco está pronto antes de iniciar outros serviços
+      test: ["CMD-SHELL", "pg_isready -U admin -d sige_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --- SERVIÇO 2: BACKEND API (FastAPI) ---
+  api:
+    build: ./api  # Constrói a imagem usando o Dockerfile na pasta /api
+    container_name: sige_api
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 # Comando para iniciar a API
+    environment:
+      # Passa a string de conexão para a API
+      - DATABASE_URL=postgresql://admin:admin@db:5432/sige_db
+    ports:
+      # Expõe a porta 8000 da API para o seu computador
+      - "8000:8000"
+    volumes:
+      # Mapeia a pasta local ./api para a pasta /app dentro do contêiner
+      - ./api:/app
+    # --- FIM DA ADIÇÃO ---
+    depends_on:
+      db: # Garante que o banco 'db' esteja pronto antes de iniciar a 'api'
+        condition: service_healthy
+
+  # --- SERVIÇO 3: FRONTEND (Streamlit) ---
+  frontend:
+    build: ./frontend # Constrói a imagem usando o Dockerfile na pasta /frontend
+    container_name: sige_frontend
+    command: streamlit run dashboard_sige.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      # Expõe a porta 8501 do Streamlit para o seu computador
+      - "8501:8501"
+    volumes:
+      # Mapeia a pasta local ./frontend para a pasta /app dentro do contêiner
+      - ./frontend:/app
+    # --- FIM DA ADIÇÃO ---
+    environment:
+      # Diz ao Streamlit onde a API está (o nome do serviço "api")
+      - API_URL=http://api:8000
+      - DATABASE_URL=postgresql://admin:admin@db:5432/sige_db
+    depends_on:
+      - api # Inicia o frontend somente após a API estar pronta
+
+  # --- SERVIÇO 4: SCRIPT ETL (Carga do Kaggle) ---
+  etl:
+    build: ./etl
+    container_name: sige_etl
+    environment:
+      # Passa a string de conexão para o script ETL
+      - DATABASE_URL=postgresql://admin:admin@db:5432/sige_db
+    volumes:
+      # Mapeia a pasta 'data' local para dentro do contêiner
+      - ./etl:/app
+    profiles:
+      - jobs
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres-data: # Declara o volume de dados persistentes
